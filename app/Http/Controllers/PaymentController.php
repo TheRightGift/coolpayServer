@@ -10,16 +10,36 @@ use Illuminate\Http\Request;
 class PaymentController extends Controller
 {
     /**
-     * Return a listing of the resource.
+     * Return a listing of the resource for the authenticated user (paginated).
      */
-    public function getUserTransactions()                                                                                           
+    public function index(Request $request)
+    {
+        $user = Auth::user();
+        $walletId = $user->wallet->id;
+        $query = Transaction::where('cr_wallet_id', $walletId)->orWhere('dr_wallet_id', $walletId)
+            ->orderByDesc('created_at');
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        return TransactionResource::collection($query->paginate(20));
+    }
+
+    /**
+     * Return a listing of the resource (non-paginated) for compatibility.
+     */
+    public function getUserTransactions()                                                                                            
     {
         $user = Auth::user();
         $walletId = $user->wallet->id;
         $transactions = Transaction::where('cr_wallet_id', $walletId)->orWhere('dr_wallet_id', $walletId)->get();
         return TransactionResource::collection($transactions);
     }
-   
+
     /**
      * Store a newly created resource in storage.
      */

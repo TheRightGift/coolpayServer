@@ -20,7 +20,11 @@ class Transaction extends Model
         'type',
         'status',
         'reference',
+        'external_ref',
+        'initiator_user_id',
         'description',
+        'meta',
+        'expires_at',
     ];
 
     /**
@@ -30,9 +34,11 @@ class Transaction extends Model
      */
     protected $casts = [
         'amount' => 'decimal:2',
-        'type' => 'string', // Handled by ENUM in DB, cast to string in model
-        'status' => 'string', // Handled by ENUM in DB, cast to string in model
+        'type' => 'string', // payment | payout
+        'status' => 'string', // pending | success | failed | cancelled
         'deleted_at' => 'datetime',
+        'expires_at' => 'datetime',
+        'meta' => 'array',
     ];
 
 

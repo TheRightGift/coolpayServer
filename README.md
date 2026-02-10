@@ -1,59 +1,71 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# CoolPay Backend (Laravel) – QR Payments with Company Settlement
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## What this service does
+- Tokenized QR pay links: receivers generate tokens; payers scan to pay via app or web.
+- App→App payments: ledger debit/credit between user wallets (funds stay in company Paystack account).
+- Web checkout: Paystack Standard collects funds to company account; credits receiver wallet on webhook.
+- Deposits (top-up): Paystack Standard; credits user wallet on webhook.
+- Withdrawals: Paystack Transfer from company balance to user bank; debits wallet on init, finalizes on transfer webhook (refunds on fail).
+- Idempotency keys supported on deposits, app execute, web checkout, withdrawals.
+- Rate limiting on sensitive routes; Paystack signature verification.
 
-## About Laravel
+## To-do items that must be done after code pull
+1) Run migrations: `php artisan migrate`.
+2) Configure `.env`:
+   - `PAYSTACK_SECRET=...`
+   - `APP_URL=https://your-domain` (reachable for webhooks)
+3) Configure Paystack webhooks to POST to `https://your-domain/api/webhooks/paystack` (for both charge and transfer events).
+4) Register `ReconcilePaystack` command in `app/Console/Kernel.php` (add to `$commands`) and schedule it (e.g., nightly) if desired.
+5) Test flows end-to-end (deposit, web checkout, app execute, withdrawal, webhooks, reconcile).
+6) Decide refund behavior for payouts if webhooks fail; reconciliation command currently does not auto-refund on failed transfer—it only updates status.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## API quick reference
+- Auth: `/auth/login`, `/auth/logout` (Bearer token via Passport).
+- Pay links: `POST /api/pay-links` (auth) → `{ token, url, deep_link }`.
+- Prepare pay: `GET /api/pay/{token}/prepare` (public, throttled).
+- Execute (app→app): `POST /api/pay/{token}/execute` (auth, throttled, idempotent).
+- Web checkout: `POST /api/pay/{token}/checkout` (public, throttled, idempotent) → Paystack init.
+- Deposits: `POST /api/deposits/init` (auth, idempotent) → Paystack init.
+- Withdrawals: `POST /api/wallet/withdraw` (auth, idempotent) → Paystack Transfer.
+- Transactions: `GET /api/transactions` (auth, paginated; filters `type`, `status`).
+- User payload: `GET /api/user` (auth) → user, wallet, transactions.
+- Banks: `GET /api/banks` (auth) → Paystack banks.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Rate limiting & security
+- Auth group: `throttle:60,1`; execute/checkout: `throttle:30,1`; prepare: `throttle:60,1`; webhooks: `throttle:120,1`; login: `throttle:30,1`.
+- Paystack webhooks: HMAC SHA512 signature verification.
+- Paystack balance check before initiating transfers.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Reconciliation
+- Command: `php artisan reconcile:paystack --limit=50`
+  - Verifies pending deposits (DEP-*) and web checkouts (WEB-*) via Paystack verify.
+  - Verifies pending payouts (WD-*) via Paystack transfer lookup.
+  - Marks success/failed and stamps `reconciled_at` in transaction meta. (Does **not** refund on failed payout; webhook already handles refund on fail.)
 
-## Learning Laravel
+## Testing (PHPUnit)
+- Install deps: `composer install` (include dev).
+- Run all tests: `./vendor/bin/phpunit`.
+- Feature tests cover: pay link prepare, app execute ledger debit/credit, deposit init (stub), web checkout init (stub), withdrawal (stub), webhooks charge success credit, transfer failed refund.
+- Tests run with `APP_ENV=testing` which stubs external Paystack calls; real HTTP is not hit.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Deployment steps
+1) Clone/pull repo to target environment.
+2) Install PHP deps: `composer install --no-dev --optimize-autoloader` (for prod).
+3) Copy `.env.example` to `.env` and set:
+   - `APP_KEY` (run `php artisan key:generate`)
+   - `APP_URL`
+   - `DB_*` settings
+   - `PAYSTACK_SECRET`
+   - Any cache/queue/mail configs as needed
+4) Run migrations: `php artisan migrate --force`.
+5) Cache config/routes: `php artisan config:cache && php artisan route:cache`.
+6) Set web server to point to `public/` (Nginx/Apache) and ensure HTTPS is enabled.
+7) Configure Paystack webhook URL to `https://your-domain/api/webhooks/paystack`.
+8) Register and schedule reconciliation command in `app/Console/Kernel.php` and your OS scheduler (cron): e.g., `php artisan reconcile:paystack --limit=100` nightly.
+9) Ensure queue/worker setup if you offload webhooks/notifications (optional; current code is synchronous).
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-## Laravel Sponsors
-
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
-
-### Premium Partners
-
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Notes
+- All funds settle to the company Paystack account; wallets are internal ledger balances.
+- Direction metadata (`user_payment`, `deposit_funding`, `payout`) + webhook_events are stored in transaction meta for audit.
+- Idempotency keys: set `Idempotency-Key` header on deposits, execute, checkout, and withdraw to avoid duplicates.
+- Testing environment stubs external Paystack calls; production uses live HTTP to Paystack.
