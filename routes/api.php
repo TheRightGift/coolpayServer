@@ -13,7 +13,7 @@ use App\Http\Controllers\LogoutController;
 
 Route::prefix(('auth'))->group(function () {
     Route::post('/login', [LoginController::class, 'apiLogin']);
-    Route::post('/logout', [LogoutController::class, 'apiLogout'])->name('logout');
+    Route::post('/logout', [LogoutController::class, 'apiLogout'])->name('Api-logout');
 });
 
 Route::middleware('auth:api')->group(function () {
