@@ -96,6 +96,10 @@ class LoginController extends Controller
 
         Cache::forget($cacheKey);
 
+        // Restore web session auth so /dashboard (web guard) works after 2FA login.
+        Auth::login($user, (bool) ($challenge['remember'] ?? false));
+        $request->session()->regenerate();
+
         $token = $user->createToken('SPA-Auth-Token')->accessToken;
 
         return response()->json([
