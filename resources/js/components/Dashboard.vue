@@ -302,11 +302,12 @@
       </div>
     </div>
 
-    <div v-if="twoFactorQr" id="twoFAModal" class="modal open modal-2fa">
+    <div v-if="showTwoFactorModal" id="twoFAModal" class="modal open modal-2fa">
       <div class="modal-content center-align">
         <h3 class="header">Setup 2FA</h3>
         <div class="mt-4">
-          <img :src="twoFactorQr" alt="2FA QR Code" class="responsive-img" />
+          <img v-if="twoFactorQr" :src="twoFactorQr" alt="2FA QR Code" class="responsive-img" />
+          <p v-else class="red-text text-darken-2">QR code was not returned. Please try again.</p>
           <p class="text-small grey-text text-darken-1 mt-2">Secret: {{ twoFactorSecret }}</p>
           <p class="grey-text text-darken-1 mt-2">Scan this QR code with your authenticator app</p>
         </div>
@@ -348,6 +349,7 @@ export default {
             twoFactorQr: '',
             twoFactorSecret: '',
             twoFactorCode: '',
+            showTwoFactorModal: false,
             showEditForm: false,
             showWithdrawForm: false,
             editForm: { name: '', email: '', phone: '', password: '' },
@@ -520,10 +522,16 @@ export default {
                     await this.fetchUserData();
                 } else {
                     const response = await axios.post('/api/2fa/enable');
-                    this.twoFactorQr = response.data.qr_code;
-                    this.twoFactorSecret = response.data.secret;
+                    this.twoFactorQr = response.data?.qr_code || response.data?.qrCode || '';
+                    this.twoFactorSecret = response.data?.secret || '';
                     this.twoFactorCode = '';
-                    this.showToast('Scan the QR code, then enter OTP to complete setup');
+                    this.showTwoFactorModal = true;
+
+                    if (!this.twoFactorQr) {
+                        this.showToast('2FA setup started, but QR could not be rendered. Try again.', 'error');
+                    } else {
+                        this.showToast('Scan the QR code, then enter OTP to complete setup');
+                    }
                 }
             } catch (error) {
                 this.showToast(error.response?.data?.message || 'Failed to toggle 2FA', 'error');
@@ -550,6 +558,7 @@ export default {
             this.twoFactorQr = '';
             this.twoFactorSecret = '';
             this.twoFactorCode = '';
+            this.showTwoFactorModal = false;
         },
 
         async withdraw() {
