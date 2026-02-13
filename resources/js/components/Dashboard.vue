@@ -194,7 +194,7 @@
                     </div>
                     -->
 
-                    <div v-if="tippingQrLoading" class="mt-4 center-align">
+                    <div v-if="tippingQrLoading" class="qr-display-wrap center-align">
                       <div class="preloader-wrapper active small">
                         <div class="spinner-layer spinner-blue-only">
                           <div class="circle-clipper left"><div class="circle"></div></div>
@@ -205,7 +205,7 @@
                       <p class="text-small grey-text text-darken-1 mt-2">Loading QR code...</p>
                     </div>
 
-                    <div v-else-if="tippingQrCode" class="mt-4 center-align">
+                    <div v-else-if="tippingQrCode" class="qr-display-wrap center-align">
                       <img :src="tippingQrCode" alt="Tipping QR Code" class="responsive-img border-m" />
                       <p class="text-small grey-text text-darken-1 mt-2">Share this QR code to receive tips</p>
                     </div>
@@ -701,6 +701,10 @@ export default {
     border: 1px solid #ccc;
     border-radius: 4px;
     background-color: #f9f9f9;
+}
+
+.qr-display-wrap {
+    margin-top: 1.5rem;
 }
 
 .qr-action-btn-wrap {
