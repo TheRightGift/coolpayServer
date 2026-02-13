@@ -8,9 +8,94 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use GuzzleHttp\Client;
 use Illuminate\Support\Str;
+use App\Models\PaymentLink;
 
 class WalletController extends Controller
 {
+    /**
+     * Backward compatibility endpoint for /wallet/qr-code.
+     * GET  -> return existing active QR/link if already generated.
+     * POST -> regenerate new QR/link and revoke prior active tipping links.
+     */
+    public function legacyQr(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $wallet = $user->wallet;
+        if (!$wallet) {
+            return response()->json(['message' => 'Wallet not found'], 404);
+        }
+
+        $baseUrl = config('app.url');
+
+        // GET: return previously generated active link/QR (if any)
+        if ($request->isMethod('get')) {
+            $existing = PaymentLink::where('wallet_id', $wallet->id)
+                ->where('user_id', $user->id)
+                ->where('status', 'active')
+                ->whereNull('amount')
+                ->latest('id')
+                ->first();
+
+            if (!$existing) {
+                return response()->json([
+                    'message' => 'No existing QR code',
+                    'exists' => false,
+                ]);
+            }
+
+            $tippingUrl = $baseUrl . '/pay/' . $existing->token;
+            $qrSvg = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('svg')->size(220)->generate($tippingUrl);
+
+            return response()->json([
+                'message' => 'Existing QR code found',
+                'exists' => true,
+                'token' => $existing->token,
+                'tipping_url' => $tippingUrl,
+                'qr_code' => 'data:image/svg+xml;base64,' . base64_encode($qrSvg),
+            ]);
+        }
+
+        // POST: regenerate (revoke previous active links first)
+        PaymentLink::where('wallet_id', $wallet->id)
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->whereNull('amount')
+            ->update(['status' => 'revoked']);
+
+        $request->validate([
+            'amount' => 'nullable|numeric|min:1',
+        ]);
+        $amount = $request->amount ?? null;
+
+        $link = PaymentLink::create([
+            'wallet_id' => $wallet->id,
+            'user_id' => $user->id,
+            'amount' => $amount,
+            'status' => 'active',
+        ]);
+
+        $tippingUrl = $baseUrl . '/pay/' . $link->token;
+        $qrSvg = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('svg')->size(220)->generate($tippingUrl);
+
+        return response()->json([
+            'message' => 'QR code regenerated',
+            'exists' => true,
+            'token' => $link->token,
+            'tipping_url' => $tippingUrl,
+            'qr_code' => 'data:image/svg+xml;base64,' . base64_encode($qrSvg),
+            'qr_payload' => json_encode([
+                'token' => $link->token,
+                'url' => $tippingUrl,
+                'deep_link' => 'coolpay://pay/' . $link->token,
+                'amount' => $amount,
+            ]),
+        ]);
+    }
+
     /**
      * Refresh wallet balance and transactions.
      */

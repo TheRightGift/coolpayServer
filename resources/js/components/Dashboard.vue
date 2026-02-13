@@ -194,7 +194,7 @@
 
                     <div class="mt-4">
                       <a @click="fetchTippingQrCode" class="btn waves-effect waves-light purple darken-1">
-                        Generate QR Code
+                        {{ hasTippingQr ? 'Regenerate QR Code' : 'Generate QR Code' }}
                       </a>
                     </div>
 
@@ -320,6 +320,7 @@ export default {
             wallet: { balance: 0, tipping_url: 'https://tippaz.com/tip/link' },
             transactions: [],
             tippingQrCode: '',
+            hasTippingQr: false,
             twoFactorQr: '',
             twoFactorSecret: '',
             showEditForm: false,
@@ -390,6 +391,7 @@ export default {
                     phone: this.user.phone || '',
                     password: ''
                 };
+                await this.loadExistingTippingQr();
             } catch (error) {
                 console.error('Fetch user error:', error);
                 if (error.response?.status === 401) {
@@ -432,14 +434,32 @@ export default {
             }
         },
 
-        async fetchTippingQrCode() {
+        async loadExistingTippingQr() {
             try {
                 const response = await axios.get('/api/wallet/qr-code');
+                if (response.data?.exists) {
+                    this.tippingQrCode = response.data.qr_code || '';
+                    this.wallet.tipping_url = response.data.tipping_url || this.wallet.tipping_url;
+                    this.hasTippingQr = true;
+                } else {
+                    this.tippingQrCode = '';
+                    this.hasTippingQr = false;
+                }
+            } catch (error) {
+                this.tippingQrCode = '';
+                this.hasTippingQr = false;
+            }
+        },
+
+        async fetchTippingQrCode() {
+            try {
+                const response = await axios.post('/api/wallet/qr-code');
                 this.tippingQrCode = response.data.qr_code;
                 this.wallet.tipping_url = response.data.tipping_url;
-                this.showToast('Tipping QR code generated successfully');
+                this.hasTippingQr = true;
+                this.showToast(response.data?.message || 'Tipping QR code regenerated successfully');
             } catch (error) {
-                this.showToast(error.response?.data?.message || 'Failed to generate QR code', 'error');
+                this.showToast(error.response?.data?.message || 'Failed to regenerate QR code', 'error');
             }
         },
 
