@@ -6,6 +6,7 @@ use App\Http\Controllers\WalletController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\LoginController;
 use App\Http\Controllers\LogoutController;
+use App\Http\Controllers\TwoFactorController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [LoginController::class, 'apiLogin'])->middleware('throttle:30,1');
@@ -17,6 +18,12 @@ Route::prefix('auth')->group(function () {
 
 Route::middleware(['auth:api', 'throttle:60,1'])->group(function () {
     Route::post('/auth/reset-password', [\App\Http\Controllers\PasswordController::class, 'reset']);
+
+    // 2FA
+    Route::post('/2fa/enable', [TwoFactorController::class, 'enable'])->middleware('throttle:10,1');
+    Route::post('/2fa/disable', [TwoFactorController::class, 'disable'])->middleware('throttle:10,1');
+    Route::post('/2fa/verify', [TwoFactorController::class, 'verify'])->middleware('throttle:20,1');
+
     Route::post('/wallet/withdraw', [WalletController::class, 'withdraw']);
     Route::get('/wallet/refresh-balance', [WalletController::class, 'refreshBalance']);
     Route::get('/banks', [WalletController::class, 'getBanks']);
