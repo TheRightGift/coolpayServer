@@ -16,9 +16,11 @@ class TwoFactorController extends Controller
     public function enable(Request $request)
     {
         $user = auth()->user();
+
+        // Start 2FA setup in unverified state; user must verify OTP before enable is finalized.
         $secret = $this->google2fa->generateSecretKey();
         $user->two_factor_secret = $secret;
-        $user->two_factor_enabled = true;
+        $user->two_factor_enabled = false;
         $user->save();
 
         $qrCode = $this->google2fa->getQRCodeUrl(
@@ -31,25 +33,33 @@ class TwoFactorController extends Controller
         $qrCodeBase64 = base64_encode($qrCodeSvg);
 
         return response()->json([
-            'message' => '2FA enabled',
+            'message' => '2FA setup started. Scan QR and verify with your OTP code.',
             'qr_code' => 'data:image/svg+xml;base64,' . $qrCodeBase64,
             'secret' => $secret,
+            'requires_verification' => true,
         ]);
     }
 
     public function verify(Request $request)
     {
-        $request->validate(['code' => 'required|string']);
+        $request->validate(['code' => 'required|string|min:6|max:8']);
 
         $user = auth()->user();
+
+        if (!$user->two_factor_secret) {
+            return response()->json(['message' => '2FA setup has not been started'], 400);
+        }
+
         $valid = $this->google2fa->verifyKey($user->two_factor_secret, $request->code);
 
         if (!$valid) {
             return response()->json(['message' => 'Invalid 2FA code'], 400);
         }
 
-        $token = $user->createToken('auth_token')->accessToken;
-        return response()->json(['message' => '2FA verified', 'token' => $token]);
+        $user->two_factor_enabled = true;
+        $user->save();
+
+        return response()->json(['message' => '2FA enabled successfully']);
     }
 
     public function disable(Request $request)

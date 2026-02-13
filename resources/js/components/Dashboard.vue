@@ -310,8 +310,18 @@
           <p class="text-small grey-text text-darken-1 mt-2">Secret: {{ twoFactorSecret }}</p>
           <p class="grey-text text-darken-1 mt-2">Scan this QR code with your authenticator app</p>
         </div>
+
+        <div class="input-field mt-4" style="max-width: 240px; margin-left: auto; margin-right: auto;">
+          <input v-model="twoFactorCode" type="text" id="two_factor_code" maxlength="8" placeholder="Enter 6-digit code">
+          <label for="two_factor_code" :class="{ 'active': twoFactorCode }">Authenticator Code</label>
+        </div>
+
+        <div class="mt-3">
+          <a @click="verify2FA" class="btn waves-effect waves-light teal darken-2">Verify & Enable</a>
+        </div>
+
         <div class="modal-footer">
-          <a @click="twoFactorQr = ''" class="modal-close waves-effect waves-green btn-flat teal-text text-darken-2">Close</a>
+          <a @click="close2FAModal" class="modal-close waves-effect waves-green btn-flat teal-text text-darken-2">Close</a>
         </div>
       </div>
     </div>
@@ -337,6 +347,7 @@ export default {
             tippingQrLoading: false,
             twoFactorQr: '',
             twoFactorSecret: '',
+            twoFactorCode: '',
             showEditForm: false,
             showWithdrawForm: false,
             editForm: { name: '', email: '', phone: '', password: '' },
@@ -504,17 +515,41 @@ export default {
             try {
                 if (this.user.two_factor_enabled) {
                     await axios.post('/api/2fa/disable');
+                    this.close2FAModal();
                     this.showToast('2FA disabled successfully');
                     await this.fetchUserData();
                 } else {
                     const response = await axios.post('/api/2fa/enable');
                     this.twoFactorQr = response.data.qr_code;
                     this.twoFactorSecret = response.data.secret;
-                    this.showToast('Scan the QR code with your authenticator app');
+                    this.twoFactorCode = '';
+                    this.showToast('Scan the QR code, then enter OTP to complete setup');
                 }
             } catch (error) {
                 this.showToast(error.response?.data?.message || 'Failed to toggle 2FA', 'error');
             }
+        },
+
+        async verify2FA() {
+            if (!this.twoFactorCode) {
+                this.showToast('Enter the authenticator code to verify 2FA', 'error');
+                return;
+            }
+
+            try {
+                await axios.post('/api/2fa/verify', { code: this.twoFactorCode });
+                this.showToast('2FA enabled successfully');
+                this.close2FAModal();
+                await this.fetchUserData();
+            } catch (error) {
+                this.showToast(error.response?.data?.message || '2FA verification failed', 'error');
+            }
+        },
+
+        close2FAModal() {
+            this.twoFactorQr = '';
+            this.twoFactorSecret = '';
+            this.twoFactorCode = '';
         },
 
         async withdraw() {
