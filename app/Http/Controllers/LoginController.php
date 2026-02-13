@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
+use PragmaRX\Google2FA\Google2FA;
 
 class LoginController extends Controller
 {
@@ -24,19 +27,32 @@ class LoginController extends Controller
             // Regenerate session for security (standard web practice)
             $request->session()->regenerate();
 
-            // ------------------------------------------------------------------
-            // Passport Token Issuance (Personal Access Token Grant)
-            // Token is created and sent to the Vue frontend for API calls.
-            // ------------------------------------------------------------------
-            
-            // Create a Personal Access Token for the user
-            // We use 'accessToken' property here
+            // If 2FA is enabled, require OTP verification before issuing API token.
+            if ($user->two_factor_enabled && $user->two_factor_secret) {
+                $challengeToken = Str::random(64);
+                Cache::put(
+                    '2fa_login:' . $challengeToken,
+                    [
+                        'user_id' => $user->id,
+                        'remember' => $request->boolean('remember'),
+                    ],
+                    now()->addMinutes(5)
+                );
+
+                // Drop authenticated session until OTP is verified.
+                Auth::logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return response()->json([
+                    'requires_2fa' => true,
+                    'challenge_token' => $challengeToken,
+                    'message' => '2FA code required',
+                ], 200);
+            }
+
             $token = $user->createToken('SPA-Auth-Token')->accessToken;
 
-            // IMPORTANT FIX: 
-            // We DO NOT log out of the session here (Auth::logout()) 
-            // so the user remains authenticated for the dashboard redirect.
-            
             return response()->json([
                 'token_data' => [
                     'access_token' => $token,
@@ -49,6 +65,47 @@ class LoginController extends Controller
 
         // Failed authentication attempt
         return response()->json(['error' => 'Invalid credentials'], 401);
+    }
+
+    public function verifyLogin2fa(Request $request)
+    {
+        $validated = $request->validate([
+            'challenge_token' => ['required', 'string'],
+            'code' => ['required', 'string', 'min:6', 'max:8'],
+        ]);
+
+        $cacheKey = '2fa_login:' . $validated['challenge_token'];
+        $challenge = Cache::get($cacheKey);
+
+        if (!$challenge || empty($challenge['user_id'])) {
+            return response()->json(['message' => '2FA session expired. Please login again.'], 400);
+        }
+
+        $user = \App\Models\User::find($challenge['user_id']);
+        if (!$user || !$user->two_factor_enabled || !$user->two_factor_secret) {
+            Cache::forget($cacheKey);
+            return response()->json(['message' => '2FA is not available for this account'], 400);
+        }
+
+        $google2fa = new Google2FA();
+        $isValid = $google2fa->verifyKey($user->two_factor_secret, $validated['code']);
+
+        if (!$isValid) {
+            return response()->json(['message' => 'Invalid 2FA code'], 400);
+        }
+
+        Cache::forget($cacheKey);
+
+        $token = $user->createToken('SPA-Auth-Token')->accessToken;
+
+        return response()->json([
+            'token_data' => [
+                'access_token' => $token,
+                'token_type' => 'Bearer',
+            ],
+            'user' => $user,
+            'remember' => (bool) ($challenge['remember'] ?? false),
+        ], 200);
     }
 
     /**

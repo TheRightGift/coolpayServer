@@ -26,7 +26,7 @@
           </div>
         </div>
         
-        <div class="row">
+        <div v-if="!requires2FA" class="row">
           <div class="input-field col s12">
             <i class="material-icons prefix">lock</i>
             <input
@@ -40,6 +40,23 @@
               placeholder=""
             >
             <label for="password">Password</label>
+          </div>
+        </div>
+
+        <div v-if="requires2FA" class="row">
+          <div class="input-field col s12">
+            <i class="material-icons prefix">security</i>
+            <input
+              id="two_factor_code"
+              v-model="twoFactorCode"
+              name="two_factor_code"
+              type="text"
+              maxlength="8"
+              required
+              class="validate"
+              placeholder=""
+            >
+            <label for="two_factor_code">Authenticator Code</label>
           </div>
         </div>
 
@@ -63,8 +80,8 @@
               class="btn-large waves-effect waves-light teal darken-2 full-width"
               :disabled="loading"
             >
-              <span v-if="!loading">Sign in</span>
-              <span v-else>Signing in...</span>
+              <span v-if="!loading">{{ requires2FA ? 'Verify 2FA' : 'Sign in' }}</span>
+              <span v-else>{{ requires2FA ? 'Verifying...' : 'Signing in...' }}</span>
             </button>
           </div>
         </div>
@@ -101,7 +118,10 @@ export default {
       },
       errors: [],
       success: '',
-      loading: false
+      loading: false,
+      requires2FA: false,
+      challengeToken: '',
+      twoFactorCode: ''
     }
   },
   methods: {
@@ -111,37 +131,45 @@ export default {
       this.success = '';
 
       try {
-        // 1. Post credentials to the Laravel login endpoint
-        const response = await axios.post('/auth/login', this.form);
+        let response;
 
-        // 2. Check for the token_data key returned by the LoginController
+        if (!this.requires2FA) {
+          response = await axios.post('/auth/login', this.form);
+
+          if (response.data?.requires_2fa) {
+            this.requires2FA = true;
+            this.challengeToken = response.data.challenge_token;
+            this.twoFactorCode = '';
+            this.success = 'Enter the code from your authenticator app to continue.';
+            return;
+          }
+        } else {
+          response = await axios.post('/api/auth/2fa/verify-login', {
+            challenge_token: this.challengeToken,
+            code: this.twoFactorCode,
+          });
+        }
+
         if (response.data && response.data.token_data) {
-          
-          // Store the Passport access token and set the Axios header
           storeAuthToken(response.data.token_data);
-
           this.success = 'Login successful! Redirecting to dashboard...';
-          
-          // 3. Redirect (the session remains active, so this will succeed)
           setTimeout(() => {
             window.location.href = '/dashboard';
           }, 1000);
         } else {
-             this.errors = ['Login failed. Invalid response structure from server.'];
+          this.errors = ['Login failed. Invalid response structure from server.'];
         }
       } catch (error) {
-        // Unified error handling
         if (error.response) {
-            if (error.response.status === 401) {
-                this.errors = ['Invalid credentials. Please check your email and password.'];
-            } else if (error.response.data && error.response.data.errors) {
-                // Handle validation errors from the Laravel backend
-                this.errors = Object.values(error.response.data.errors).flat();
-            } else if (error.response.data && error.response.data.message) {
-                this.errors = [error.response.data.message];
-            } else {
-                this.errors = [`An error occurred (Status ${error.response.status}).`];
-            }
+          if (error.response.status === 401) {
+            this.errors = ['Invalid credentials. Please check your email and password.'];
+          } else if (error.response.data && error.response.data.errors) {
+            this.errors = Object.values(error.response.data.errors).flat();
+          } else if (error.response.data && error.response.data.message) {
+            this.errors = [error.response.data.message];
+          } else {
+            this.errors = [`An error occurred (Status ${error.response.status}).`];
+          }
         } else {
           this.errors = ['Network error. Please try again.'];
         }
