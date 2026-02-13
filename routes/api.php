@@ -20,9 +20,9 @@ Route::middleware(['auth:api', 'throttle:60,1'])->group(function () {
     Route::post('/auth/reset-password', [\App\Http\Controllers\PasswordController::class, 'reset']);
 
     // 2FA
-    Route::post('/2fa/enable', [TwoFactorController::class, 'enable'])->middleware('throttle:10,1');
-    Route::post('/2fa/disable', [TwoFactorController::class, 'disable'])->middleware('throttle:10,1');
-    Route::post('/2fa/verify', [TwoFactorController::class, 'verify'])->middleware('throttle:20,1');
+    Route::post('/2fa/enable', [TwoFactorController::class, 'enable'])->middleware('throttle:60,1');
+    Route::post('/2fa/disable', [TwoFactorController::class, 'disable'])->middleware('throttle:60,1');
+    Route::post('/2fa/verify', [TwoFactorController::class, 'verify'])->middleware('throttle:30,1');
 
     Route::post('/wallet/withdraw', [WalletController::class, 'withdraw']);
     Route::get('/wallet/refresh-balance', [WalletController::class, 'refreshBalance']);
