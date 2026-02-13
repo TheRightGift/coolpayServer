@@ -132,8 +132,12 @@
 
                     <div class="divider pt-4 mt-4"></div>
                     <div class="pt-4">
-                      <a @click="toggle2FA" class="btn waves-effect waves-light grey lighten-2 grey-text text-darken-4">
-                        {{ user.two_factor_enabled ? 'Disable' : 'Enable' }} 2FA
+                      <a
+                        @click="toggle2FA"
+                        class="btn waves-effect waves-light full-width-btn"
+                        :class="user.two_factor_enabled ? 'red darken-1' : 'blue darken-1'"
+                      >
+                        {{ user.two_factor_enabled ? 'Disable 2FA' : 'Enable 2FA' }}
                       </a>
                     </div>
                   </div>
@@ -710,6 +714,9 @@ export default {
     padding-top: 0.5rem;
 }
 
+.full-width-btn {
+    width: 100%;
+}
 .profile-item {
     display: flex;
     align-items: center;
