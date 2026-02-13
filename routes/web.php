@@ -11,6 +11,8 @@ Route::get('/', function () {
 Route::prefix(('auth'))->group(function () {
     Route::post('login', [LoginController::class, 'login']);
     Route::post('/logout', [LogoutController::class, 'logout'])->name('logout');
+    // Web fallback logout to avoid CSRF/session mismatch issues from SPA actions.
+    Route::get('/logout', [LogoutController::class, 'logout']);
 
     Route::middleware('guest')->group(function () {
         Route::get('/login', [LoginController::class, 'showLogin'])->name('login');

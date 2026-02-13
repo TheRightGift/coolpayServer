@@ -583,16 +583,13 @@ export default {
             }
         },
 
-        async logout() {
-            try {
-                await axios.post('/auth/logout');
-            } catch (error) {
-                // Ignore backend errors; still clear client auth state.
-            } finally {
-                localStorage.removeItem('auth_token');
-                delete axios.defaults.headers.common['Authorization'];
-                window.location.href = '/';
-            }
+        logout() {
+            // Always clear client token first.
+            localStorage.removeItem('auth_token');
+            delete axios.defaults.headers.common['Authorization'];
+
+            // Use web logout endpoint directly so session is always destroyed.
+            window.location.href = '/auth/logout';
         },
 
         copyTippingUrl() {
