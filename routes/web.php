@@ -10,6 +10,7 @@ Route::get('/', function () {
 
 Route::prefix(('auth'))->group(function () {
     Route::post('login', [LoginController::class, 'login']);
+    Route::post('/2fa/verify-login', [LoginController::class, 'verifyLogin2fa'])->middleware('throttle:30,1');
     Route::post('/logout', [LogoutController::class, 'logout'])->name('logout');
     // Web fallback logout to avoid CSRF/session mismatch issues from SPA actions.
     Route::get('/logout', [LogoutController::class, 'logout']);

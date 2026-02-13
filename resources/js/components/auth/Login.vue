@@ -155,7 +155,7 @@ export default {
             return;
           }
         } else {
-          response = await axios.post('/api/auth/2fa/verify-login', {
+          response = await axios.post('/auth/2fa/verify-login', {
             challenge_token: this.challengeToken,
             code: this.twoFactorCode,
           });

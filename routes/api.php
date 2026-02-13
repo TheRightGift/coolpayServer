@@ -14,7 +14,6 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [\App\Http\Controllers\RegisterController::class, 'register'])->middleware('throttle:30,1');
     Route::post('/forgot-password', [\App\Http\Controllers\ForgotPasswordController::class, 'sendResetLink'])->middleware('throttle:10,1');
     Route::post('/reset-password-token', [\App\Http\Controllers\ForgotPasswordController::class, 'resetWithToken'])->middleware('throttle:10,1');
-    Route::post('/2fa/verify-login', [LoginController::class, 'verifyLogin2fa'])->middleware('throttle:30,1');
 });
 
 Route::middleware(['auth:api', 'throttle:60,1'])->group(function () {
