@@ -6,67 +6,97 @@
 - Web checkout: Paystack Standard collects funds to company account; credits receiver wallet on webhook.
 - Deposits (top-up): Paystack Standard; credits user wallet on webhook.
 - Withdrawals: Paystack Transfer from company balance to user bank; debits wallet on init, finalizes on transfer webhook (refunds on fail).
+- 2FA setup + verification and login challenge flow are supported.
 - Idempotency keys supported on deposits, app execute, web checkout, withdrawals.
 - Rate limiting on sensitive routes; Paystack signature verification.
 
-## To-do items that must be done after code pull
-1) Run migrations and seed test users: `php artisan migrate --seed` (seeds two test users with funded wallets).
-2) Configure `.env`:
-   - `PAYSTACK_SECRET=...`
-   - `APP_URL=https://your-domain` (reachable for webhooks)
-   - Mail settings for password reset email: `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`
-3) Configure Paystack webhooks to POST to `https://your-domain/api/webhooks/paystack` (for both charge and transfer events).
-4) Register `ReconcilePaystack` command in `app/Console/Kernel.php` (add to `$commands`) and schedule it (e.g., nightly) if desired.
-5) Test flows end-to-end (deposit, web checkout, app execute, withdrawal, webhooks, reconcile, password reset via email token).
-6) Decide refund behavior for payouts if webhooks fail; reconciliation command currently does not auto-refund on failed transfer—it only updates status.
+## Deployment checklist (production)
+1) Clone/pull repo to target environment.
+2) Install dependencies:
+   - `composer install --no-dev --optimize-autoloader`
+3) Configure environment:
+   - `cp .env.example .env`
+   - `php artisan key:generate`
+   - Set `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://your-domain`
+   - Set DB credentials (`DB_*`)
+   - Set `PAYSTACK_SECRET`
+   - Configure mail settings for password reset
+4) Run migrations:
+   - `php artisan migrate --force`
+5) Build/cache runtime:
+   - `php artisan config:cache`
+   - `php artisan route:cache`
+   - `php artisan view:cache`
+6) Web server:
+   - Serve from `public/`
+   - Enforce HTTPS and redirect HTTP→HTTPS
+7) Configure Paystack webhook:
+   - `https://your-domain/api/webhooks/paystack`
+8) Schedule reconciliation:
+   - `php artisan reconcile:paystack --limit=100` (e.g., nightly)
+9) Set process supervision:
+   - PHP-FPM/Apache/Nginx health checks
+   - Optional queue worker supervision if async jobs are introduced
+
+## Security hardening notes
+- Keep `APP_DEBUG=false` in production.
+- Rotate `APP_KEY`, API secrets, and Paystack secret via secure secret manager.
+- Restrict DB and app ports at network/firewall layer.
+- Do not expose `.env`, storage logs, or debug endpoints publicly.
+- Keep webhook signature verification enabled (HMAC SHA512).
+- Keep transaction mutation endpoints closed; state changes should flow through payment/deposit/withdrawal handlers only.
+- 2FA:
+  - Setup requires OTP verification before enable is finalized.
+  - Login for 2FA-enabled users requires challenge + OTP verification.
+
+## Availability / reliability guidance
+- Use a managed DB with backups + PITR where possible.
+- Monitor:
+  - webhook failures
+  - pending transaction backlog
+  - reconciliation results
+  - payout failure rate
+- Reconciliation command is idempotent-safe and applies wallet side-effects for pending records.
+- Add uptime checks on:
+  - `/up`
+  - API auth endpoint
+  - webhook endpoint reachability (synthetic)
 
 ## API quick reference
-- Auth: `/auth/login`, `/auth/logout` (Bearer token via Passport).
-- Pay links: `POST /api/pay-links` (auth) → `{ token, url, deep_link }`.
-- Prepare pay: `GET /api/pay/{token}/prepare` (public, throttled).
-- Execute (app→app): `POST /api/pay/{token}/execute` (auth, throttled, idempotent).
-- Web checkout: `POST /api/pay/{token}/checkout` (public, throttled, idempotent) → Paystack init.
-- Deposits: `POST /api/deposits/init` (auth, idempotent) → Paystack init.
-- Withdrawals: `POST /api/wallet/withdraw` (auth, idempotent) → Paystack Transfer.
-- Transactions: `GET /api/transactions` (auth, paginated; filters `type`, `status`).
-- User payload: `GET /api/user` (auth) → user, wallet, transactions.
-- Banks: `GET /api/banks` (auth) → Paystack banks.
-
-## Rate limiting & security
-- Auth group: `throttle:60,1`; execute/checkout: `throttle:30,1`; prepare: `throttle:60,1`; webhooks: `throttle:120,1`; login: `throttle:30,1`.
-- Paystack webhooks: HMAC SHA512 signature verification.
-- Paystack balance check before initiating transfers.
+- Web auth: `/auth/login`, `/auth/logout`, `/auth/2fa/verify-login`
+- API auth: `/api/auth/login`, `/api/auth/logout`, `/api/auth/register`
+- Password reset:
+  - `/api/auth/forgot-password`
+  - `/api/auth/reset-password-token`
+  - `/api/auth/reset-password` (authenticated)
+- 2FA management (authenticated):
+  - `/api/2fa/enable`
+  - `/api/2fa/verify`
+  - `/api/2fa/disable`
+- Pay links: `POST /api/pay-links` (auth) → `{ token, url, deep_link }`
+- Prepare pay: `GET /api/pay/{token}/prepare` (public, throttled)
+- Execute (app→app): `POST /api/pay/{token}/execute` (auth, throttled, idempotent)
+- Web checkout: `POST /api/pay/{token}/checkout` (public, throttled, idempotent)
+- Deposits: `POST /api/deposits/init` (auth, idempotent)
+- Withdrawals: `POST /api/wallet/withdraw` (auth, idempotent)
+- Transactions: `GET /api/transactions` (auth; filters: `type`, `status`)
+- User payload: `GET /api/user` (auth)
+- Banks: `GET /api/banks` (auth)
 
 ## Reconciliation
 - Command: `php artisan reconcile:paystack --limit=50`
-  - Verifies pending deposits (DEP-*) and web checkouts (WEB-*) via Paystack verify.
-  - Verifies pending payouts (WD-*) via Paystack transfer lookup.
-  - Marks success/failed and stamps `reconciled_at` in transaction meta. (Does **not** refund on failed payout; webhook already handles refund on fail.)
+  - Verifies pending deposits (DEP-*) and web checkouts (WEB-*) via Paystack verify
+  - Verifies pending payouts (WD-*) via Paystack transfer lookup
+  - Updates status + `reconciled_at`
+  - Applies wallet side-effects where required (credit/refund on pending transitions)
 
-## Testing (PHPUnit)
-- Install deps: `composer install` (include dev).
-- Run all tests: `./vendor/bin/phpunit`.
-- Feature tests cover: pay link prepare, app execute ledger debit/credit, deposit init (stub), web checkout init (stub), withdrawal (stub), webhooks charge success credit, transfer failed refund.
-- Tests run with `APP_ENV=testing` which stubs external Paystack calls; real HTTP is not hit.
+## Testing notes
+- Install deps: `composer install`
+- Run tests: `./vendor/bin/phpunit`
+- If tests fail with SQLite driver errors, install/enable `pdo_sqlite` for CLI PHP.
+- Test environment stubs external Paystack calls (`APP_ENV=testing`).
 
-## Deployment steps
-1) Clone/pull repo to target environment.
-2) Install PHP deps: `composer install --no-dev --optimize-autoloader` (for prod).
-3) Copy `.env.example` to `.env` and set:
-   - `APP_KEY` (run `php artisan key:generate`)
-   - `APP_URL`
-   - `DB_*` settings
-   - `PAYSTACK_SECRET`
-   - Any cache/queue/mail configs as needed
-4) Run migrations: `php artisan migrate --force`.
-5) Cache config/routes: `php artisan config:cache && php artisan route:cache`.
-6) Set web server to point to `public/` (Nginx/Apache) and ensure HTTPS is enabled.
-7) Configure Paystack webhook URL to `https://your-domain/api/webhooks/paystack`.
-8) Register and schedule reconciliation command in `app/Console/Kernel.php` and your OS scheduler (cron): e.g., `php artisan reconcile:paystack --limit=100` nightly.
-9) Ensure queue/worker setup if you offload webhooks/notifications (optional; current code is synchronous).
-
-## Notes
-- All funds settle to the company Paystack account; wallets are internal ledger balances.
-- Direction metadata (`user_payment`, `deposit_funding`, `payout`) + webhook_events are stored in transaction meta for audit.
-- Idempotency keys: set `Idempotency-Key` header on deposits, execute, checkout, and withdraw to avoid duplicates.
-- Testing environment stubs external Paystack calls; production uses live HTTP to Paystack.
+## Operational notes
+- All funds settle to company Paystack account; wallets are internal ledger balances.
+- Direction metadata (`user_payment`, `deposit_funding`, `payout`) + webhook events are stored in transaction meta for audit.
+- Always send `Idempotency-Key` on deposits, execute, checkout, withdraw to prevent duplicates.
