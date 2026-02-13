@@ -184,6 +184,7 @@
 
                     <div class="divider mt-4 mb-4"></div>
                     
+                    <!--
                     <p class="text-small grey-text text-darken-1 mb-2">Your Tipping Link:</p>
                     <div class="tipping-url-box">
                       <input :value="wallet.tipping_url" readonly class="url-input" />
@@ -191,12 +192,7 @@
                         Copy
                       </a>
                     </div>
-
-                    <div class="mt-4">
-                      <a @click="fetchTippingQrCode" class="btn waves-effect waves-light purple darken-1" :class="{ disabled: tippingQrLoading }">
-                        {{ tippingQrLoading ? 'Loading...' : (hasTippingQr ? 'Regenerate QR Code' : 'Generate QR Code') }}
-                      </a>
-                    </div>
+                    -->
 
                     <div v-if="tippingQrLoading" class="mt-4 center-align">
                       <div class="preloader-wrapper active small">
@@ -212,6 +208,12 @@
                     <div v-else-if="tippingQrCode" class="mt-4 center-align">
                       <img :src="tippingQrCode" alt="Tipping QR Code" class="responsive-img border-m" />
                       <p class="text-small grey-text text-darken-1 mt-2">Share this QR code to receive tips</p>
+                    </div>
+
+                    <div class="qr-action-btn-wrap">
+                      <a @click="fetchTippingQrCode" class="btn waves-effect waves-light purple darken-1" :class="{ disabled: tippingQrLoading }">
+                        {{ tippingQrLoading ? 'Loading...' : (hasTippingQr ? 'Regenerate QR Code' : 'Generate QR Code') }}
+                      </a>
                     </div>
                   </div>
 
@@ -699,6 +701,10 @@ export default {
     border: 1px solid #ccc;
     border-radius: 4px;
     background-color: #f9f9f9;
+}
+
+.qr-action-btn-wrap {
+    margin-top: 1.5rem;
 }
 
 /* Transaction Badges */
