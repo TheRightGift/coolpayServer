@@ -10,13 +10,14 @@
 - Rate limiting on sensitive routes; Paystack signature verification.
 
 ## To-do items that must be done after code pull
-1) Run migrations: `php artisan migrate`.
+1) Run migrations and seed test users: `php artisan migrate --seed` (seeds two test users with funded wallets).
 2) Configure `.env`:
    - `PAYSTACK_SECRET=...`
    - `APP_URL=https://your-domain` (reachable for webhooks)
+   - Mail settings for password reset email: `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`
 3) Configure Paystack webhooks to POST to `https://your-domain/api/webhooks/paystack` (for both charge and transfer events).
 4) Register `ReconcilePaystack` command in `app/Console/Kernel.php` (add to `$commands`) and schedule it (e.g., nightly) if desired.
-5) Test flows end-to-end (deposit, web checkout, app execute, withdrawal, webhooks, reconcile).
+5) Test flows end-to-end (deposit, web checkout, app execute, withdrawal, webhooks, reconcile, password reset via email token).
 6) Decide refund behavior for payouts if webhooks fail; reconciliation command currently does not auto-refund on failed transfer—it only updates status.
 
 ## API quick reference
