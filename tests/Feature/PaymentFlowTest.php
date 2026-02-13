@@ -6,14 +6,14 @@ use App\Models\PaymentLink;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Wallet;
-use Illuminate\Support\Facades\Hash;
+use PHPUnit\Framework\Attributes\Test;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
 
 class PaymentFlowTest extends TestCase
 {
-    /** @test */
+    #[Test]
     public function prepare_returns_receiver_details()
     {
         $receiver = User::factory()->create();
@@ -34,7 +34,7 @@ class PaymentFlowTest extends TestCase
             ]);
     }
 
-    /** @test */
+    #[Test]
     public function execute_debits_sender_and_credits_receiver()
     {
         $sender = User::factory()->create();
@@ -61,7 +61,7 @@ class PaymentFlowTest extends TestCase
         $this->assertEquals(1200, (int) $receiverWallet->balance);
     }
 
-    /** @test */
+    #[Test]
     public function deposit_init_returns_stub_and_creates_pending_tx()
     {
         $user = User::factory()->create();
@@ -83,7 +83,7 @@ class PaymentFlowTest extends TestCase
         ]);
     }
 
-    /** @test */
+    #[Test]
     public function checkout_init_returns_stub_and_creates_pending_tx()
     {
         $receiver = User::factory()->create();
@@ -109,7 +109,7 @@ class PaymentFlowTest extends TestCase
         ]);
     }
 
-    /** @test */
+    #[Test]
     public function withdrawal_stub_debits_wallet_and_marks_success()
     {
         $user = User::factory()->create();
@@ -136,7 +136,7 @@ class PaymentFlowTest extends TestCase
         ]);
     }
 
-    /** @test */
+    #[Test]
     public function webhook_charge_success_credits_wallet()
     {
         $user = User::factory()->create();
@@ -173,7 +173,7 @@ class PaymentFlowTest extends TestCase
         $this->assertEquals(1000, (int) $wallet->balance);
     }
 
-    /** @test */
+    #[Test]
     public function webhook_transfer_failed_refunds_wallet()
     {
         $user = User::factory()->create();

@@ -4,7 +4,9 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Models\Transaction;
+use App\Models\Wallet;
 use GuzzleHttp\Client;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ReconcilePaystack extends Command
@@ -30,7 +32,7 @@ class ReconcilePaystack extends Command
 
         // Payments: pending charge refs starting with DEP- or WEB-
         $payments = Transaction::where('status', 'pending')
-            ->whereIn('type', ['payment'])
+            ->where('type', 'payment')
             ->where(function ($q) {
                 $q->where('reference', 'like', 'DEP-%')
                   ->orWhere('reference', 'like', 'WEB-%');
@@ -38,32 +40,43 @@ class ReconcilePaystack extends Command
             ->limit($limit)
             ->get();
 
-        foreach ($payments as $tx) {
+        foreach ($payments as $pendingTx) {
             try {
-                $resp = $client->get("https://api.paystack.co/transaction/verify/{$tx->reference}");
+                $resp = $client->get("https://api.paystack.co/transaction/verify/{$pendingTx->reference}");
                 $body = json_decode($resp->getBody(), true);
                 if (!($body['status'] ?? false)) {
                     continue;
                 }
+
                 $status = $body['data']['status'] ?? null; // success/failed/abandoned
-                if ($status === 'success') {
-                    $tx->status = 'success';
-                    $tx->external_ref = $body['data']['id'] ?? $tx->external_ref;
+                if (!in_array($status, ['success', 'failed'], true)) {
+                    continue;
+                }
+
+                DB::transaction(function () use ($pendingTx, $body, $status) {
+                    $tx = Transaction::where('id', $pendingTx->id)->lockForUpdate()->first();
+                    if (!$tx || $tx->status !== 'pending') {
+                        return;
+                    }
+
                     $meta = $tx->meta ?? [];
                     $meta['reconciled_at'] = now()->toIso8601String();
-                    $tx->meta = $meta;
-                    $tx->save();
-                }
-                if ($status === 'failed') {
-                    $tx->status = 'failed';
+
+                    $tx->status = $status;
                     $tx->external_ref = $body['data']['id'] ?? $tx->external_ref;
-                    $meta = $tx->meta ?? [];
-                    $meta['reconciled_at'] = now()->toIso8601String();
                     $tx->meta = $meta;
                     $tx->save();
-                }
+
+                    if ($status === 'success' && $tx->cr_wallet_id) {
+                        $wallet = Wallet::where('id', $tx->cr_wallet_id)->lockForUpdate()->first();
+                        if ($wallet) {
+                            $wallet->balance = $wallet->balance + $tx->amount;
+                            $wallet->save();
+                        }
+                    }
+                });
             } catch (\Throwable $e) {
-                Log::warning('Reconcile payment failed', ['reference' => $tx->reference, 'error' => $e->getMessage()]);
+                Log::warning('Reconcile payment failed', ['reference' => $pendingTx->reference, 'error' => $e->getMessage()]);
             }
         }
 
@@ -74,29 +87,46 @@ class ReconcilePaystack extends Command
             ->limit($limit)
             ->get();
 
-        foreach ($payouts as $tx) {
+        foreach ($payouts as $pendingTx) {
             try {
-                if (!$tx->external_ref) {
+                if (!$pendingTx->external_ref) {
                     continue;
                 }
-                $resp = $client->get("https://api.paystack.co/transfer/{$tx->external_ref}");
+
+                $resp = $client->get("https://api.paystack.co/transfer/{$pendingTx->external_ref}");
                 $body = json_decode($resp->getBody(), true);
                 if (!($body['status'] ?? false)) {
                     continue;
                 }
+
                 $status = $body['data']['status'] ?? null; // success|failed|ongoing
-                if ($status === 'success') {
-                    $tx->status = 'success';
-                } elseif ($status === 'failed') {
-                    $tx->status = 'failed';
-                    // refund wallet?
+                if (!in_array($status, ['success', 'failed'], true)) {
+                    continue;
                 }
-                $meta = $tx->meta ?? [];
-                $meta['reconciled_at'] = now()->toIso8601String();
-                $tx->meta = $meta;
-                $tx->save();
+
+                DB::transaction(function () use ($pendingTx, $status) {
+                    $tx = Transaction::where('id', $pendingTx->id)->lockForUpdate()->first();
+                    if (!$tx || $tx->status !== 'pending') {
+                        return;
+                    }
+
+                    $meta = $tx->meta ?? [];
+                    $meta['reconciled_at'] = now()->toIso8601String();
+
+                    $tx->status = $status;
+                    $tx->meta = $meta;
+                    $tx->save();
+
+                    if ($status === 'failed' && $tx->dr_wallet_id) {
+                        $wallet = Wallet::where('id', $tx->dr_wallet_id)->lockForUpdate()->first();
+                        if ($wallet) {
+                            $wallet->balance = $wallet->balance + $tx->amount;
+                            $wallet->save();
+                        }
+                    }
+                });
             } catch (\Throwable $e) {
-                Log::warning('Reconcile payout failed', ['reference' => $tx->reference, 'error' => $e->getMessage()]);
+                Log::warning('Reconcile payout failed', ['reference' => $pendingTx->reference, 'error' => $e->getMessage()]);
             }
         }
 

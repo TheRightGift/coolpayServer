@@ -10,15 +10,21 @@ use App\Http\Controllers\LogoutController;
 Route::prefix('auth')->group(function () {
     Route::post('/login', [LoginController::class, 'apiLogin'])->middleware('throttle:30,1');
     Route::post('/logout', [LogoutController::class, 'apiLogout'])->name('Api-logout');
+    Route::post('/register', [\App\Http\Controllers\RegisterController::class, 'register'])->middleware('throttle:30,1');
+    Route::post('/forgot-password', [\App\Http\Controllers\ForgotPasswordController::class, 'sendResetLink'])->middleware('throttle:10,1');
+    Route::post('/reset-password-token', [\App\Http\Controllers\ForgotPasswordController::class, 'resetWithToken'])->middleware('throttle:10,1');
 });
 
 Route::middleware(['auth:api', 'throttle:60,1'])->group(function () {
+    Route::post('/auth/reset-password', [\App\Http\Controllers\PasswordController::class, 'reset']);
     Route::post('/wallet/withdraw', [WalletController::class, 'withdraw']);
     Route::get('/wallet/refresh-balance', [WalletController::class, 'refreshBalance']);
     Route::get('/banks', [WalletController::class, 'getBanks']);
 
     // Payment links (QR generation)
     Route::post('/pay-links', [\App\Http\Controllers\PaymentLinkController::class, 'store']);
+    // Legacy fallback for old mobile clients
+    Route::match(['get','post'], '/wallet/qr-code', [WalletController::class, 'legacyQr']);
 
     // Deposits
     Route::post('/deposits/init', [\App\Http\Controllers\DepositController::class, 'init']);
@@ -26,7 +32,8 @@ Route::middleware(['auth:api', 'throttle:60,1'])->group(function () {
     // Transactions
     Route::get('/transactions', [PaymentController::class, 'index']);
     Route::get('/getUserTransactions', [PaymentController::class, 'getUserTransactions']);
-    Route::apiResource('transactions', PaymentController::class)->except(['index']);
+    // Transaction mutations/routes are intentionally not exposed publicly.
+    // All state changes should go through payment/deposit/withdrawal flows.
 
     Route::get('/user', function (Request $request) {
         $user = $request->user();

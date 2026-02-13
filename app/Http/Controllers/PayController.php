@@ -40,38 +40,108 @@ class PayController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $link = PaymentLink::with('wallet.user')->where('token', $token)->lockForUpdate()->first();
-        if (!$link || !$link->isActive()) {
-            return response()->json(['message' => 'Invalid or expired link'], 404);
-        }
-
         $validated = $request->validate([
             'amount' => 'nullable|numeric|min:1',
         ]);
 
-        $amount = $link->amount ?? $validated['amount'] ?? null;
-        if (!$amount) {
-            return response()->json(['message' => 'Amount required'], 400);
-        }
-
-        $senderWallet = Wallet::where('user_id', $user->id)->lockForUpdate()->first();
-        if (!$senderWallet) {
-            return response()->json(['message' => 'Sender wallet not found'], 404);
-        }
-
-        if ($senderWallet->id === $link->wallet_id) {
-            return response()->json(['message' => 'Cannot pay yourself'], 400);
-        }
-
-        // Idempotency support
         $idempotencyKey = $request->header('Idempotency-Key');
-        if ($idempotencyKey) {
-            $existing = Transaction::where('initiator_user_id', $user->id)
-                ->where('type', 'payment')
-                ->where('reference', 'like', 'PAY-%')
-                ->where('meta->idempotency_key', $idempotencyKey)
-                ->first();
-            if ($existing) {
+
+        try {
+            $result = DB::transaction(function () use ($user, $token, $validated, $idempotencyKey) {
+                if ($idempotencyKey) {
+                    $existing = Transaction::where('initiator_user_id', $user->id)
+                        ->where('type', 'payment')
+                        ->where('reference', 'like', 'PAY-%')
+                        ->where('meta->idempotency_key', $idempotencyKey)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($existing) {
+                        return [
+                            'idempotent' => true,
+                            'tx' => $existing,
+                        ];
+                    }
+                }
+
+                $link = PaymentLink::with('wallet.user')
+                    ->where('token', $token)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$link || !$link->isActive()) {
+                    return ['error' => response()->json(['message' => 'Invalid or expired link'], 404)];
+                }
+
+                $amount = $link->amount ?? ($validated['amount'] ?? null);
+                if (!$amount) {
+                    return ['error' => response()->json(['message' => 'Amount required'], 400)];
+                }
+
+                $senderWallet = Wallet::where('user_id', $user->id)->lockForUpdate()->first();
+                if (!$senderWallet) {
+                    return ['error' => response()->json(['message' => 'Sender wallet not found'], 404)];
+                }
+
+                if ($senderWallet->id === $link->wallet_id) {
+                    return ['error' => response()->json(['message' => 'Cannot pay yourself'], 400)];
+                }
+
+                $currentBalance = $senderWallet->actual_balance ?? $senderWallet->balance;
+                if ($amount > $currentBalance) {
+                    return ['error' => response()->json(['message' => 'Insufficient funds'], 402)];
+                }
+
+                $receiverWallet = Wallet::where('id', $link->wallet_id)->lockForUpdate()->first();
+                if (!$receiverWallet) {
+                    return ['error' => response()->json(['message' => 'Receiver wallet not found'], 404)];
+                }
+
+                $reference = 'PAY-' . now()->format('Ymd-His') . '-' . Str::upper(Str::random(6));
+
+                $tx = Transaction::create([
+                    'dr_wallet_id' => $senderWallet->id,
+                    'cr_wallet_id' => $link->wallet_id,
+                    'amount' => $amount,
+                    'type' => 'payment',
+                    'status' => 'success',
+                    'reference' => $reference,
+                    'description' => $link->memo,
+                    'initiator_user_id' => $user->id,
+                    'meta' => [
+                        'payment_link_id' => $link->id,
+                        'source' => 'app-execute',
+                        'direction' => 'user_payment',
+                        'idempotency_key' => $idempotencyKey,
+                    ],
+                ]);
+
+                $senderWallet->balance = $senderWallet->balance - $amount;
+                $senderWallet->save();
+
+                $receiverWallet->balance = $receiverWallet->balance + $amount;
+                $receiverWallet->save();
+
+                return [
+                    'idempotent' => false,
+                    'tx' => $tx,
+                    'reference' => $reference,
+                    'amount' => $amount,
+                    'receiver' => [
+                        'id' => $link->wallet->user->id,
+                        'name' => $link->wallet->user->name,
+                    ],
+                    'sender_balance' => $senderWallet->balance,
+                    'receiver_balance' => $receiverWallet->balance,
+                ];
+            });
+
+            if (isset($result['error'])) {
+                return $result['error'];
+            }
+
+            if (!empty($result['idempotent'])) {
+                $existing = $result['tx'];
                 return response()->json([
                     'message' => 'Payment already processed',
                     'reference' => $existing->reference,
@@ -79,63 +149,19 @@ class PayController extends Controller
                     'status' => $existing->status,
                 ], 200);
             }
-        }
 
-        // Use actual_balance accessor for validation, but persist balance column for now
-        $currentBalance = $senderWallet->actual_balance ?? $senderWallet->balance;
-        if ($amount > $currentBalance) {
-            return response()->json(['message' => 'Insufficient funds'], 402);
-        }
-
-        $reference = 'PAY-' . now()->format('Ymd-His') . '-' . Str::upper(Str::random(6));
-
-        try {
-            DB::beginTransaction();
-
-            // Create transaction record
-            $tx = Transaction::create([
-                'dr_wallet_id' => $senderWallet->id,
-                'cr_wallet_id' => $link->wallet_id,
-                'amount' => $amount,
-                'type' => 'payment',
+            return response()->json([
+                'reference' => $result['reference'],
                 'status' => 'success',
-                'reference' => $reference,
-                'description' => $link->memo,
-                'initiator_user_id' => $user->id,
-                'meta' => [
-                    'payment_link_id' => $link->id,
-                    'source' => 'app-execute',
-                    'direction' => 'user_payment',
-                    'idempotency_key' => $idempotencyKey,
-                ],
-            ]);
-
-            // Adjust balances (simple subtract/add)
-            $senderWallet->balance = $senderWallet->balance - $amount;
-            $senderWallet->save();
-
-            $receiverWallet = Wallet::where('id', $link->wallet_id)->lockForUpdate()->first();
-            $receiverWallet->balance = $receiverWallet->balance + $amount;
-            $receiverWallet->save();
-
-            DB::commit();
+                'amount' => $result['amount'],
+                'receiver' => $result['receiver'],
+                'sender_balance' => $result['sender_balance'],
+                'receiver_balance' => $result['receiver_balance'],
+                'transaction_id' => $result['tx']->id,
+            ], 200);
         } catch (\Throwable $e) {
-            DB::rollBack();
             return response()->json(['message' => 'Payment failed', 'error' => $e->getMessage()], 500);
         }
-
-        return response()->json([
-            'reference' => $reference,
-            'status' => 'success',
-            'amount' => $amount,
-            'receiver' => [
-                'id' => $link->wallet->user->id,
-                'name' => $link->wallet->user->name,
-            ],
-            'sender_balance' => $senderWallet->balance,
-            'receiver_balance' => $receiverWallet->balance,
-            'transaction_id' => $tx->id,
-        ], 200);
     }
 
     // Public checkout start (non-app payers) - stub for Paystack redirect/inline
