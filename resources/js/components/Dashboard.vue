@@ -302,7 +302,8 @@
       </div>
     </div>
 
-    <div v-if="showTwoFactorModal" id="twoFAModal" class="modal open modal-2fa">
+    <div v-if="showTwoFactorModal" class="modal-overlay modal-overlay-custom"></div>
+    <div v-if="showTwoFactorModal" id="twoFAModal" class="modal open modal-2fa" style="display: block; z-index: 1004;">
       <div class="modal-content center-align">
         <h3 class="header">Setup 2FA</h3>
         <div class="mt-4">
@@ -752,6 +753,17 @@ export default {
 
 .qr-action-btn-wrap {
     margin-top: 1.5rem;
+}
+
+.modal-overlay-custom {
+    display: block;
+    opacity: 0.5;
+    z-index: 1003;
+}
+
+.modal-2fa {
+    top: 10% !important;
+    max-height: 80%;
 }
 
 /* Transaction Badges */
