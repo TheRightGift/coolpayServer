@@ -193,12 +193,23 @@
                     </div>
 
                     <div class="mt-4">
-                      <a @click="fetchTippingQrCode" class="btn waves-effect waves-light purple darken-1">
-                        {{ hasTippingQr ? 'Regenerate QR Code' : 'Generate QR Code' }}
+                      <a @click="fetchTippingQrCode" class="btn waves-effect waves-light purple darken-1" :class="{ disabled: tippingQrLoading }">
+                        {{ tippingQrLoading ? 'Loading...' : (hasTippingQr ? 'Regenerate QR Code' : 'Generate QR Code') }}
                       </a>
                     </div>
 
-                    <div v-if="tippingQrCode" class="mt-4 center-align">
+                    <div v-if="tippingQrLoading" class="mt-4 center-align">
+                      <div class="preloader-wrapper active small">
+                        <div class="spinner-layer spinner-blue-only">
+                          <div class="circle-clipper left"><div class="circle"></div></div>
+                          <div class="gap-patch"><div class="circle"></div></div>
+                          <div class="circle-clipper right"><div class="circle"></div></div>
+                        </div>
+                      </div>
+                      <p class="text-small grey-text text-darken-1 mt-2">Loading QR code...</p>
+                    </div>
+
+                    <div v-else-if="tippingQrCode" class="mt-4 center-align">
                       <img :src="tippingQrCode" alt="Tipping QR Code" class="responsive-img border-m" />
                       <p class="text-small grey-text text-darken-1 mt-2">Share this QR code to receive tips</p>
                     </div>
@@ -321,6 +332,7 @@ export default {
             transactions: [],
             tippingQrCode: '',
             hasTippingQr: false,
+            tippingQrLoading: false,
             twoFactorQr: '',
             twoFactorSecret: '',
             showEditForm: false,
@@ -435,6 +447,7 @@ export default {
         },
 
         async loadExistingTippingQr() {
+            this.tippingQrLoading = true;
             try {
                 const response = await axios.get('/api/wallet/qr-code');
                 if (response.data?.exists) {
@@ -448,10 +461,13 @@ export default {
             } catch (error) {
                 this.tippingQrCode = '';
                 this.hasTippingQr = false;
+            } finally {
+                this.tippingQrLoading = false;
             }
         },
 
         async fetchTippingQrCode() {
+            this.tippingQrLoading = true;
             try {
                 const response = await axios.post('/api/wallet/qr-code');
                 this.tippingQrCode = response.data.qr_code;
@@ -460,6 +476,8 @@ export default {
                 this.showToast(response.data?.message || 'Tipping QR code regenerated successfully');
             } catch (error) {
                 this.showToast(error.response?.data?.message || 'Failed to regenerate QR code', 'error');
+            } finally {
+                this.tippingQrLoading = false;
             }
         },
 
