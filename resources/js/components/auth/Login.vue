@@ -58,6 +58,9 @@
             >
             <label for="two_factor_code">Authenticator Code</label>
           </div>
+          <div class="col s12 right-align" style="margin-top: -8px;">
+            <a href="#" @click.prevent="reset2FALoginStep" class="teal-text text-darken-2">Back to password</a>
+          </div>
         </div>
 
         <div v-if="errors.length > 0" class="card-panel red lighten-4 red-text text-darken-4">
@@ -125,6 +128,14 @@ export default {
     }
   },
   methods: {
+    reset2FALoginStep() {
+      this.requires2FA = false;
+      this.challengeToken = '';
+      this.twoFactorCode = '';
+      this.success = '';
+      this.errors = [];
+    },
+
     async login() {
       this.loading = true;
       this.errors = [];
