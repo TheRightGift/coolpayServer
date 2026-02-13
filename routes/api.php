@@ -10,7 +10,7 @@ use App\Http\Controllers\TwoFactorController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [LoginController::class, 'apiLogin'])->middleware('throttle:30,1');
-    Route::post('/logout', [LogoutController::class, 'apiLogout'])->name('Api-logout');
+    Route::post('/logout', [LogoutController::class, 'logout'])->name('Api-logout');
     Route::post('/register', [\App\Http\Controllers\RegisterController::class, 'register'])->middleware('throttle:30,1');
     Route::post('/forgot-password', [\App\Http\Controllers\ForgotPasswordController::class, 'sendResetLink'])->middleware('throttle:10,1');
     Route::post('/reset-password-token', [\App\Http\Controllers\ForgotPasswordController::class, 'resetWithToken'])->middleware('throttle:10,1');

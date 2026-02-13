@@ -586,9 +586,11 @@ export default {
         async logout() {
             try {
                 await axios.post('/auth/logout');
-                window.location.href = '/';
             } catch (error) {
-                // If logout fails, still redirect to home
+                // Ignore backend errors; still clear client auth state.
+            } finally {
+                localStorage.removeItem('auth_token');
+                delete axios.defaults.headers.common['Authorization'];
                 window.location.href = '/';
             }
         },
